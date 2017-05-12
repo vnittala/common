@@ -3,7 +3,8 @@ package common
 import (
 	"net/http"
 	"os"
-	//	"time"
+
+	"database/sql"
 
 	"github.com/gin-gonic/gin"
 	"github.com/satori/go.uuid"
@@ -24,20 +25,23 @@ const (
 	NOT_IMPLEMENTED    = http.StatusNotImplemented
 	RESOURCE_NOT_FOUND = http.StatusNotFound
 	STATUS_OK          = http.StatusOK
-	LOG_NAME           = "E:\\logFiles\\"
+	LOG_NAME           = "/tmp/hcare.log"
 	DATE_LAYOUT        = "02012006"
 
-	// DB Exceptions
-	DB_OPEN    = 1000
-	CRATE_PING = 2000
+	//Database exception codes
+	DB_OPEN = 1000
+	DB_PING = 2000
 )
 
 var (
 	LOG_FILE_NAME string
 )
 
+//getLogFileName retrieves log file name based on
+//OUT_LOG_FILE environment variable.
+//If not exported defaults to tmp folder
 func getLogFileName() string {
-	LOG_FILE_NAME = os.Getenv("LOG_FOLDER")
+	LOG_FILE_NAME = os.Getenv("OUT_LOG_FILE")
 
 	if LOG_FILE_NAME == "" {
 		LOG_FILE_NAME = LOG_NAME
@@ -45,19 +49,9 @@ func getLogFileName() string {
 	return LOG_FILE_NAME
 }
 
+//LogOutput logs the records to log file
 func LogOutput(level string, msg string) {
-
-	/*currentTime := time.Now()
-	logName := getLogFileName() + "log-" + currentTime.Format(DATE_LAYOUT) + ".log"
-	f, err := os.OpenFile(logName, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0660)
-	if err != nil {
-		panic("failed to create temporary file")
-	}
-	defer f.Close()
-	*/
-
-	//logger := zap.New(zapcore.NewJSONEncoder(), zap.Output(f))
-	logger, _ := zap.NewDevelopment()
+	logger, _ := NewFileOutLog()
 
 	switch level {
 
@@ -70,16 +64,17 @@ func LogOutput(level string, msg string) {
 	default:
 		logger.Debug(msg)
 	}
-	//f.Sync()
 
 }
 
+//CheckErr function check if there is error and logs it
 func CheckErr(err error, msg string) {
 	if err != nil {
 		LogOutput("error", msg+"-"+err.Error())
 	}
 }
 
+//CheckFatalErr function shuts the application in case of fatal error
 func CheckFatalErr(err error, errCode int, msg string) {
 	if err != nil {
 		LogOutput("error", msg+"-"+err.Error())
@@ -87,6 +82,7 @@ func CheckFatalErr(err error, errCode int, msg string) {
 	}
 }
 
+//NewUUID function generates a unique identifier
 func NewUUID() string {
 
 	return uuid.NewV4().String()
@@ -98,15 +94,28 @@ Below functions include middlewares for gin-gonic framework
 
 */
 
+//RequestIdMiddleware is s GIN middleware function to add request ID to the incoming rest request
 func RequestIdMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.Writer.Header().Set("X-Request-Id", NewUUID())
-		//c.Next()
+		c.Request.Header.Set("X-Request-Id", NewUUID())
+		c.Next()
 	}
 }
 
-func FileLogger() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		LogOutput("info", c.Request.Method+"|"+c.Request.Header.Get("X-User-Id")+"|"+c.Request.URL.RequestURI())
+func CheckRowsCount(rows *sql.Rows) (count int) {
+	for rows.Next() {
+		err := rows.Scan(&count)
+		CheckErr(err, err.Error())
 	}
+	return count
+}
+
+func NewFileOutLog() (*zap.Logger, error) {
+
+	cfg := zap.NewDevelopmentConfig()
+	cfg.OutputPaths = []string{
+		getLogFileName(),
+	}
+	return cfg.Build()
+
 }
